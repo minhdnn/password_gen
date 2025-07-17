@@ -539,7 +539,7 @@ const PasswordToolkit = () => {
 
     return (
         <div className="min-h-screen w-full flex items-center justify-center p-4 relative overflow-hidden">
-            <Toaster position="bottom-center" toastOptions={{
+            <Toaster position="bottom-right" toastOptions={{
                 style: { background: '#1f2937', color: '#e5e7eb', border: '1px solid #374151' },
             }} />
             
@@ -658,17 +658,25 @@ const PasswordToolkit = () => {
                                             History
                                         </motion.button>
                                      </div>
-                                    {clipboardClearTimer.expiresAt && 
-                                        <motion.button 
-                                            onClick={handleClearClipboard} 
-                                            whileHover={{ scale: 1.02 }} 
-                                            whileTap={{ scale: 0.98 }} 
-                                            className="w-full flex items-center justify-center bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 font-semibold py-3 px-4 rounded-lg shadow-md">
-                                            <TrashIcon className="w-5 h-5 mr-2" />
-                                            Clear Clipboard
-                                            <CountdownTimer expiresAt={clipboardClearTimer.expiresAt} className="ml-1.5" />
-                                        </motion.button>
-                                    }
+                                    <div className="h-14">
+                                        <AnimatePresence>
+                                            {clipboardClearTimer.expiresAt && (
+                                                <motion.button
+                                                    initial={{ opacity: 0 }}
+                                                    animate={{ opacity: 1 }}
+                                                    exit={{ opacity: 0 }}
+                                                    onClick={handleClearClipboard}
+                                                    whileHover={{ scale: 1.02 }}
+                                                    whileTap={{ scale: 0.98 }}
+                                                    className="w-full flex items-center justify-center bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 font-semibold py-3 px-4 rounded-lg shadow-md"
+                                                >
+                                                    <TrashIcon className="w-5 h-5 mr-2" />
+                                                    Clear Clipboard
+                                                    <CountdownTimer expiresAt={clipboardClearTimer.expiresAt} className="ml-1.5" />
+                                                </motion.button>
+                                            )}
+                                        </AnimatePresence>
+                                    </div>
                                 </div>
                             </div>
                         ) : (

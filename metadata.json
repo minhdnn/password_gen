@@ -1,5 +1,5 @@
-
 {
-  "name": "Advanced Password Toolkit",
-  "description": "A secure password generator and strength evaluator with a modern UI."
+  "name": "Password Toolkit",
+  "description": "A powerful application to generate and evaluate secure passwords.",
+  "requestFramePermissions": []
 }
