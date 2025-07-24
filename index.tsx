@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ReactDOM from 'react-dom/client';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -370,23 +371,49 @@ const PasswordToolkit = () => {
     const userPasswordInputRef = useRef(null);
     const previousPasswordRef = useRef(null);
     
-    const [generatedPassword, setGeneratedPassword] = useState('');
-    const [displayedPassword, setDisplayedPassword] = useState('');
-    const [passwordLength, setPasswordLength] = useState(16);
-    const [passwordLengthInput, setPasswordLengthInput] = useState('16');
-    const [options, setOptions] = useState({ includeUppercase: true, includeLowercase: true, includeNumbers: true, includeSymbols: true });
+    // --- Shared State ---
+    const [generatedOutput, setGeneratedOutput] = useState('');
+    const [displayedOutput, setDisplayedOutput] = useState('');
     const [isPasswordVisible, setIsPasswordVisible] = useState(true);
     const [copied, setCopied] = useState(false);
-    
-    const [userStrength, setUserStrength] = useState(null);
-    const [simpleStrength, setSimpleStrength] = useState(null);
-    const [userSimpleStrength, setUserSimpleStrength] = useState(null);
     const [generationCount, setGenerationCount] = useState(0);
     const [passwordHistory, setPasswordHistory] = useState([]);
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
-    
     const [clipboardClearTimer, setClipboardClearTimer] = useState({ id: null, expiresAt: null });
     const [activeView, setActiveView] = useState('generator');
+    const [simpleStrength, setSimpleStrength] = useState(null);
+
+    // --- Password Generator State ---
+    const [passwordLength, setPasswordLength] = useState(16);
+    const [options, setOptions] = useState({ includeUppercase: true, includeLowercase: true, includeNumbers: true, includeSymbols: true });
+    
+    // --- Passphrase Generator State ---
+    const [wordList, setWordList] = useState([]);
+    const [isLoadingWordList, setIsLoadingWordList] = useState(true);
+    const [passphraseWordCount, setPassphraseWordCount] = useState(3);
+    const [passphraseOptions, setPassphraseOptions] = useState({ includeNumber: true, capitalizeWord: true });
+
+    // --- Evaluator State ---
+    const [userStrength, setUserStrength] = useState(null);
+    const [userSimpleStrength, setUserSimpleStrength] = useState(null);
+
+    // --- Wordlist Loading ---
+    useEffect(() => {
+        const fetchWordList = async () => {
+            try {
+                const response = await fetch('./wordlist.txt');
+                const text = await response.text();
+                const words = text.split('\n').filter(word => word.trim().length > 2);
+                setWordList(words);
+            } catch (error) {
+                console.error('Failed to load wordlist:', error);
+                toast.error('Could not load wordlist.txt');
+            } finally {
+                setIsLoadingWordList(false);
+            }
+        };
+        fetchWordList();
+    }, []);
 
     const handleClearClipboard = useCallback(async () => {
         try {
@@ -402,7 +429,7 @@ const PasswordToolkit = () => {
     const copyAndSetTimer = useCallback((password) => {
         if (!password) return;
         navigator.clipboard.writeText(password);
-        toast.success('Password copied! Clipboard will clear in 5 minutes.');
+        toast.success('Copied! Clipboard will clear in 5 minutes.');
 
         if (clipboardClearTimer.id) clearTimeout(clipboardClearTimer.id);
         
@@ -414,31 +441,15 @@ const PasswordToolkit = () => {
         setTimeout(() => setCopied(false), 2000);
     }, [clipboardClearTimer.id, handleClearClipboard]);
 
+    // --- Password Generator Logic ---
     const handleOptionChange = (e) => {
         const { id, checked } = e.target;
         setOptions(prev => ({ ...prev, [id]: checked }));
     };
-
-    const handleLengthInputChange = (e) => {
-        const value = e.target.value;
-        if (/^\d*$/.test(value) && value.length < 4) setPasswordLengthInput(value);
-    };
-
-    const handleLengthInputBlur = () => {
-        let num = parseInt(passwordLengthInput, 10);
-        if (isNaN(num) || passwordLengthInput === '') num = 16; 
-        if (num < 1) num = 1;
-        if (num > 64) num = 64;
-        setPasswordLength(num);
-        setPasswordLengthInput(String(num));
-    };
-    
     const handleSliderChange = (e) => {
         const num = parseInt(e.target.value, 10);
         setPasswordLength(num);
-        setPasswordLengthInput(String(num));
     };
-
     const generatePassword = useCallback(() => {
         const { includeLowercase, includeUppercase, includeNumbers, includeSymbols } = options;
         
@@ -466,27 +477,24 @@ const PasswordToolkit = () => {
         }
         return passwordArray.join('');
     }, [options, passwordLength]);
-    
     const playGenerationAnimation = useCallback((length, finalPassword) => {
         let iteration = 0;
         const interval = setInterval(() => {
             let randomString = '';
             const charPool = CHAR_SETS.lowercase + CHAR_SETS.uppercase + CHAR_SETS.numbers + CHAR_SETS.symbols;
             for (let i = 0; i < length; i++) randomString += charPool[randomCrypto(charPool.length)];
-            setDisplayedPassword(randomString);
+            setDisplayedOutput(randomString);
             
             if (iteration >= 10) {
                 clearInterval(interval);
-                setDisplayedPassword(finalPassword);
-                setGeneratedPassword(finalPassword);
+                setDisplayedOutput(finalPassword);
+                setGeneratedOutput(finalPassword);
             }
             iteration++;
         }, 20);
     }, []);
-
     const handleGenerateAndUpdate = useCallback(() => {
         const newPassword = generatePassword();
-        
         if (newPassword) {
             if (previousPasswordRef.current !== newPassword) {
                 const newHistoryEntry = { password: newPassword, timestamp: new Date(), expiresAt: Date.now() + 10 * 60 * 1000 };
@@ -498,32 +506,111 @@ const PasswordToolkit = () => {
             previousPasswordRef.current = newPassword;
             playGenerationAnimation(passwordLength, newPassword);
         } else {
-            setDisplayedPassword('');
-            setGeneratedPassword('');
+            setDisplayedOutput('');
+            setGeneratedOutput('');
             previousPasswordRef.current = '';
         }
-        
-        setTimeout(() => {
-            setSimpleStrength(calculateSimpleStrength(newPassword || ''));
-        }, 220);
+        setTimeout(() => setSimpleStrength(calculateSimpleStrength(newPassword || '')), 220);
     }, [generatePassword, passwordLength, playGenerationAnimation]);
+    
+    // --- Passphrase Generator Logic ---
+    const handlePassphraseOptionChange = (e) => {
+        const { id, checked } = e.target;
+        setPassphraseOptions(prev => ({ ...prev, [id]: checked }));
+    };
+    const handleWordCountChange = (e) => {
+        const num = parseInt(e.target.value, 10);
+        setPassphraseWordCount(num);
+    };
 
+    const generatePassphrase = useCallback(() => {
+        if (isLoadingWordList || wordList.length === 0) return null;
+        
+        const words = [];
+        for (let i = 0; i < passphraseWordCount; i++) {
+            words.push(wordList[randomCrypto(wordList.length)]);
+        }
+
+        if (passphraseOptions.capitalizeWord && words.length > 0) {
+            const wordIndexToModify = randomCrypto(words.length);
+            words[wordIndexToModify] = words[wordIndexToModify].charAt(0).toUpperCase() + words[wordIndexToModify].slice(1);
+        }
+
+        if (passphraseOptions.includeNumber && words.length > 0) {
+            const number = randomCrypto(10).toString();
+            const wordIndexToModify = randomCrypto(words.length);
+            words[wordIndexToModify] = words[wordIndexToModify] + number;
+        }
+        
+        return words.join('-');
+    }, [wordList, isLoadingWordList, passphraseWordCount, passphraseOptions.includeNumber, passphraseOptions.capitalizeWord]);
+    const playPassphraseAnimation = useCallback((finalPassphrase) => {
+        let iteration = 0;
+        const interval = setInterval(() => {
+            if (wordList.length > 0) {
+                 const tempWords = [];
+                for (let i = 0; i < passphraseWordCount; i++) {
+                    tempWords.push(wordList[randomCrypto(wordList.length)]);
+                }
+                setDisplayedOutput(tempWords.join('-'));
+            }
+            if (iteration >= 10) {
+                clearInterval(interval);
+                setDisplayedOutput(finalPassphrase);
+                setGeneratedOutput(finalPassphrase);
+            }
+            iteration++;
+        }, 30);
+    }, [wordList, passphraseWordCount]);
+    const handleGenerateAndUpdatePassphrase = useCallback(() => {
+        const newPassphrase = generatePassphrase();
+        if (newPassphrase) {
+            if (previousPasswordRef.current !== newPassphrase) {
+                const newHistoryEntry = { password: newPassphrase, timestamp: new Date(), expiresAt: Date.now() + 10 * 60 * 1000 };
+                setPasswordHistory(prev => [newHistoryEntry, ...prev.slice(0, 9)]);
+            }
+            if (previousPasswordRef.current !== null && newPassphrase !== previousPasswordRef.current) {
+                setGenerationCount(count => count + 1);
+            }
+            previousPasswordRef.current = newPassphrase;
+            playPassphraseAnimation(newPassphrase);
+        } else {
+            setDisplayedOutput('');
+            setGeneratedOutput('');
+            previousPasswordRef.current = '';
+        }
+        setTimeout(() => setSimpleStrength(calculateSimpleStrength(newPassphrase || '')), 220);
+    }, [generatePassphrase, playPassphraseAnimation]);
+
+    // --- Evaluator Logic ---
     const handleEvaluateUserPassword = () => {
         const passwordToCheck = userPasswordInputRef.current?.value || '';
         setUserStrength(calculateStrengthReport(passwordToCheck));
         setUserSimpleStrength(calculateSimpleStrength(passwordToCheck));
     };
 
+    // --- Effects ---
     useEffect(() => {
-        handleGenerateAndUpdate();
+        if (activeView === 'generator') {
+            handleGenerateAndUpdate();
+        } else if (activeView === 'passphrase' && !isLoadingWordList) {
+            handleGenerateAndUpdatePassphrase();
+        }
+    }, [activeView, isLoadingWordList]);
+
+    useEffect(() => {
+        if (activeView === 'generator') handleGenerateAndUpdate();
     }, [handleGenerateAndUpdate]);
+    
+    useEffect(() => {
+        if (activeView === 'passphrase' && !isLoadingWordList) handleGenerateAndUpdatePassphrase();
+    }, [handleGenerateAndUpdatePassphrase]);
     
     useEffect(() => {
         const historyPruner = setInterval(() => {
             const now = Date.now();
             setPasswordHistory(prev => prev.filter(entry => entry.expiresAt > now));
         }, 1000);
-
         return () => {
             clearInterval(historyPruner);
             if (clipboardClearTimer.id) clearTimeout(clipboardClearTimer.id);
@@ -535,7 +622,7 @@ const PasswordToolkit = () => {
         toast.success("Generation history cleared.");
     }, []);
 
-    const strengthColor = (activeView === 'generator' ? simpleStrength?.color : userSimpleStrength?.color) || '#4b5563';
+    const strengthColor = (activeView === 'evaluator' ? userSimpleStrength?.color : simpleStrength?.color) || '#4b5563';
 
     return (
         <div className="min-h-screen w-full flex items-center justify-center p-4 relative overflow-hidden">
@@ -556,11 +643,15 @@ const PasswordToolkit = () => {
                 </div>
 
                 <div className="flex space-x-1 bg-slate-800/60 p-1 rounded-full">
-                    <button onClick={() => setActiveView('generator')} className="relative w-1/2 py-2.5 text-sm font-semibold rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 transition-colors text-slate-200 hover:text-white">
+                    <button onClick={() => setActiveView('generator')} className="relative w-1/3 py-2.5 text-sm font-semibold rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 transition-colors text-slate-200 hover:text-white">
                         {activeView === 'generator' && <motion.div layoutId="tab-bubble" className="absolute inset-0 bg-gradient-to-r from-emerald-600 to-cyan-600 rounded-full" transition={{ type: 'spring', stiffness: 350, damping: 30 }} />}
                         <span className="relative z-10">Generator</span>
                     </button>
-                    <button onClick={() => setActiveView('evaluator')} className="relative w-1/2 py-2.5 text-sm font-semibold rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 transition-colors text-slate-200 hover:text-white">
+                    <button onClick={() => setActiveView('passphrase')} className="relative w-1/3 py-2.5 text-sm font-semibold rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 transition-colors text-slate-200 hover:text-white">
+                        {activeView === 'passphrase' && <motion.div layoutId="tab-bubble" className="absolute inset-0 bg-gradient-to-r from-emerald-600 to-cyan-600 rounded-full" transition={{ type: 'spring', stiffness: 350, damping: 30 }} />}
+                        <span className="relative z-10">Passphrase</span>
+                    </button>
+                    <button onClick={() => setActiveView('evaluator')} className="relative w-1/3 py-2.5 text-sm font-semibold rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 transition-colors text-slate-200 hover:text-white">
                         {activeView === 'evaluator' && <motion.div layoutId="tab-bubble" className="absolute inset-0 bg-gradient-to-r from-emerald-600 to-cyan-600 rounded-full" transition={{ type: 'spring', stiffness: 350, damping: 30 }} />}
                         <span className="relative z-10">Evaluator</span>
                     </button>
@@ -579,14 +670,14 @@ const PasswordToolkit = () => {
                             <div className="space-y-6">
                                 <div>
                                     <div className="relative flex items-center group">
-                                        <div className="w-full pl-4 pr-28 font-mono text-xl sm:text-2xl tracking-wider bg-slate-900/70 border-2 border-slate-700 rounded-lg flex items-center h-[68px] overflow-hidden transition-all" style={{borderColor: strengthColor}}>
+                                        <div className="w-full pl-4 pr-28 font-mono text-sm sm:text-xl md:text-2xl tracking-wider bg-slate-900/70 border-2 border-slate-700 rounded-lg flex items-center h-[68px] overflow-x-auto transition-all" style={{borderColor: strengthColor}}>
                                             <div className="flex whitespace-nowrap">
                                                 {isPasswordVisible ? (
-                                                    Array.from(displayedPassword).map((char, index) => (
+                                                    Array.from(displayedOutput).map((char, index) => (
                                                         <span key={index} className={`${COLOR_MAP[getCharType(char)] || COLOR_MAP.default} transition-colors`}>{char}</span>
                                                     ))
                                                 ) : (
-                                                    <span className="text-slate-400">{'•'.repeat(displayedPassword.length)}</span>
+                                                    <span className="text-slate-400">{'•'.repeat(displayedOutput.length)}</span>
                                                 )}
                                             </div>
                                         </div>
@@ -599,7 +690,7 @@ const PasswordToolkit = () => {
                                             <button onClick={handleGenerateAndUpdate} className="p-2 text-slate-400 hover:text-white transition-colors rounded-md hover:bg-slate-700/50" aria-label="Regenerate">
                                                 <motion.div key={generationCount} animate={{ rotate: 360 }} transition={{ duration: 0.4 }}><GenerateIcon className="w-6 h-6" /></motion.div>
                                             </button>
-                                            <button onClick={() => copyAndSetTimer(generatedPassword)} className="p-2 text-slate-400 hover:text-white transition-colors rounded-md hover:bg-slate-700/50" aria-label="Copy password">{copied ? <CheckIcon className="w-5 h-5 text-emerald-400" /> : <ClipboardIcon className="w-5 h-5" />}</button>
+                                            <button onClick={() => copyAndSetTimer(generatedOutput)} className="p-2 text-slate-400 hover:text-white transition-colors rounded-md hover:bg-slate-700/50" aria-label="Copy password">{copied ? <CheckIcon className="w-5 h-5 text-emerald-400" /> : <ClipboardIcon className="w-5 h-5" />}</button>
                                         </div>
                                     </div>
                                     <div className="flex justify-between items-center mt-2 px-2">
@@ -640,8 +731,8 @@ const PasswordToolkit = () => {
                                     </motion.button>
                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                         <motion.button 
-                                            onClick={() => copyAndSetTimer(generatedPassword)} 
-                                            disabled={!generatedPassword} 
+                                            onClick={() => copyAndSetTimer(generatedOutput)} 
+                                            disabled={!generatedOutput} 
                                             whileHover={{ scale: 1.02 }} 
                                             whileTap={{ scale: 0.98 }} 
                                             className="w-full flex items-center justify-center bg-slate-700/60 hover:bg-slate-700 border border-slate-600/80 text-slate-200 font-semibold py-3 px-4 rounded-lg shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all">
@@ -678,6 +769,94 @@ const PasswordToolkit = () => {
                                         </AnimatePresence>
                                     </div>
                                 </div>
+                            </div>
+                        ) : activeView === 'passphrase' ? (
+                            <div className="space-y-6">
+                                {isLoadingWordList ? (
+                                    <div className="text-center text-slate-400">Loading wordlist...</div>
+                                ) : (
+                                    <>
+                                        <div>
+                                            <div className="relative flex items-center group">
+                                                <div className="w-full pl-4 pr-28 font-mono text-sm sm:text-lg md:text-xl tracking-wider bg-slate-900/70 border-2 border-slate-700 rounded-lg flex items-center h-[68px] overflow-x-auto transition-all" style={{ borderColor: strengthColor }}>
+                                                    <div className="flex whitespace-nowrap items-center">
+                                                        {isPasswordVisible ? (
+                                                            displayedOutput.split('-').map((part, index, arr) => {
+                                                                const numberMatch = part.match(/(.*?)(\d+)$/);
+                                                                const wordPart = numberMatch ? numberMatch[1] : part;
+                                                                const numberPart = numberMatch ? numberMatch[2] : null;
+
+                                                                const colors = [COLOR_MAP.lowercase, 'text-violet-400', COLOR_MAP.symbols, 'text-rose-400' ];
+                                                                const colorClass = colors[index % colors.length];
+                                                                
+                                                                return (
+                                                                    <React.Fragment key={index}>
+                                                                        <span className={`${colorClass} transition-colors`}>{wordPart}</span>
+                                                                        {numberPart && <span className={`${COLOR_MAP.numbers} transition-colors`}>{numberPart}</span>}
+                                                                        {index < arr.length - 1 && <span className="text-slate-500">-</span>}
+                                                                    </React.Fragment>
+                                                                );
+                                                            })
+                                                        ) : (
+                                                            <span className="text-slate-400">{'•'.repeat(displayedOutput.length)}</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div className="absolute right-2 flex items-center space-x-1 bg-slate-800/50 rounded-lg p-1">
+                                                    <button onClick={() => setIsPasswordVisible(v => !v)} className="p-2 text-slate-400 hover:text-white transition-colors rounded-md hover:bg-slate-700/50" aria-label="Toggle visibility">
+                                                         <AnimatePresence mode="wait">
+                                                            {isPasswordVisible ? <span key="slash"><EyeSlashIcon className="w-5 h-5" /></span> : <span key="eye"><EyeIcon className="w-5 h-5" /></span>}
+                                                        </AnimatePresence>
+                                                    </button>
+                                                    <button onClick={handleGenerateAndUpdatePassphrase} className="p-2 text-slate-400 hover:text-white transition-colors rounded-md hover:bg-slate-700/50" aria-label="Regenerate">
+                                                        <motion.div key={generationCount} animate={{ rotate: 360 }} transition={{ duration: 0.4 }}><GenerateIcon className="w-6 h-6" /></motion.div>
+                                                    </button>
+                                                    <button onClick={() => copyAndSetTimer(generatedOutput)} className="p-2 text-slate-400 hover:text-white transition-colors rounded-md hover:bg-slate-700/50" aria-label="Copy passphrase">{copied ? <CheckIcon className="w-5 h-5 text-emerald-400" /> : <ClipboardIcon className="w-5 h-5" />}</button>
+                                                </div>
+                                            </div>
+                                            <div className="flex justify-between items-center mt-2 px-2">
+                                                <span className="text-sm font-medium text-slate-400">Strength</span>
+                                                {simpleStrength && <span className="font-bold text-sm" style={{ color: simpleStrength.color }}>{simpleStrength.name}</span>}
+                                            </div>
+                                        </div>
+                                        <div className="space-y-5">
+                                             <div className="space-y-3">
+                                                <div className="flex items-center justify-between gap-4">
+                                                    <label htmlFor="words-slider" className="text-sm font-medium text-slate-300 whitespace-nowrap">Words: <span className="font-bold text-white">{passphraseWordCount}</span></label>
+                                                    <input id="words-slider" type="range" min="1" max="8" value={passphraseWordCount} onChange={handleWordCountChange} className="w-full range-thumb" />
+                                                </div>
+                                                <AnimatePresence>
+                                                    {passphraseWordCount <= 2 && (
+                                                        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="flex items-center gap-2 text-xs text-amber-300 bg-amber-900/20 border-l-4 border-amber-400 px-3 py-1.5 rounded-r-lg">
+                                                            <ExclamationTriangleIcon className="w-4 h-4 flex-shrink-0" />
+                                                            <span>For better security, a passphrase of 3+ words is recommended.</span>
+                                                        </motion.div>
+                                                    )}
+                                                </AnimatePresence>
+                                            </div>
+                                            <div className="grid grid-cols-2 sm:grid-cols-2 gap-3">
+                                                <CheckboxOption id="includeNumber" label="Add Number" checked={passphraseOptions.includeNumber} onChange={handlePassphraseOptionChange} colorClass={COLOR_MAP.numbers} />
+                                                <CheckboxOption id="capitalizeWord" label="Capitalize Word" checked={passphraseOptions.capitalizeWord} onChange={handlePassphraseOptionChange} colorClass={COLOR_MAP.uppercase} />
+                                            </div>
+                                        </div>
+                                        <div className="space-y-4 pt-2">
+                                            <motion.button onClick={handleGenerateAndUpdatePassphrase} whileHover={{ scale: 1.02, filter: 'brightness(1.1)' }} whileTap={{ scale: 0.98 }} className="w-full flex items-center justify-center bg-gradient-to-r from-emerald-600 to-cyan-600 text-white font-semibold py-3 px-4 rounded-lg shadow-lg shadow-cyan-500/10 transition-all">
+                                                <GenerateIcon className="w-6 h-6 mr-2" />
+                                                Generate New Passphrase
+                                            </motion.button>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                 <motion.button onClick={() => copyAndSetTimer(generatedOutput)} disabled={!generatedOutput} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="w-full flex items-center justify-center bg-slate-700/60 hover:bg-slate-700 border border-slate-600/80 text-slate-200 font-semibold py-3 px-4 rounded-lg shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all">
+                                                    <ClipboardIcon className="w-5 h-5 mr-2" />
+                                                    Copy Passphrase
+                                                </motion.button>
+                                                <motion.button onClick={() => setIsHistoryModalOpen(true)} disabled={passwordHistory.length === 0} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="w-full flex items-center justify-center bg-slate-700/60 hover:bg-slate-700 border border-slate-600/80 text-slate-200 font-semibold py-3 px-4 rounded-lg shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all">
+                                                    <HistoryIcon className="w-5 h-5 mr-2" />
+                                                    History
+                                                </motion.button>
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
                             </div>
                         ) : (
                            <div className="space-y-4">

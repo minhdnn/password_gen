@@ -1,5 +1,6 @@
 {
   "name": "Password Toolkit",
   "description": "A powerful application to generate and evaluate secure passwords.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "prompt": ""
 }
